@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+  channel-server:
+    build:
+      context: .
+      dockerfile: docker/channel-server.Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis: { condition: service_healthy }
+    ports: ["3000:3000"]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+      STORAGE_BASE: /data/openclaw/users
+      WORKER_CONCURRENCY: "4"
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
+    volumes:
+      - nas_data:/data/openclaw/users
+    depends_on:
+      redis: { condition: service_healthy }
+    deploy:
+      replicas: 3          # scale this up freely — each is stateless
+    restart: unless-stopped
+
+  manager:
+    build:
+      context: .
+      dockerfile: docker/manager.Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+      MANAGER_PORT: "3001"
+    depends_on:
+      redis: { condition: service_healthy }
+    ports: ["3001:3001"]
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  nas_data:

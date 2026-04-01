@@ -1,0 +1,8 @@
+{
+  "name": "@openclaw/storage",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "scripts": { "build": "tsc", "dev": "tsc -w" },
+  "dependencies": { "fs-extra": "^11.0.0" },
+  "devDependencies": { "@types/fs-extra": "^11.0.0" }
+}

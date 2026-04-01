@@ -1,0 +1,11 @@
+{
+  "name": "@openclaw/worker-pool",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "scripts": { "build": "tsc", "dev": "ts-node-dev --respawn src/index.ts", "start": "node dist/index.js" },
+  "dependencies": {
+    "@openclaw/mq": "workspace:*",
+    "@openclaw/storage": "workspace:*",
+    "openclaw": "latest"
+  }
+}
