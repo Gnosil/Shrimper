@@ -61,7 +61,9 @@ const adapterMap = new Map(activeAdapters.map(a => [a.platform, a]));
 
 // ── Core message handler (shared by all adapters) ──────────────────────────
 async function handleInbound(msg: InboundMessage) {
-  const uid = `${msg.platform}:${msg.uid}`;
+  const uid     = `${msg.platform}:${msg.uid}`;
+  // Routing: use env-configured default until the Router package is wired in
+  const agentId = process.env.DEFAULT_AGENT_ID ?? "openclaw-default";
 
   if (!(await subService.isAllowed(uid))) {
     await adapterMap.get(msg.platform)?.send(msg.channel, msg.uid,
@@ -75,10 +77,11 @@ async function handleInbound(msg: InboundMessage) {
     channel:   msg.channel,
     messageId: msg.messageId ?? crypto.randomUUID(),
     content:   msg.content,
+    agentId,
   };
 
   await taskQueue.add("task", payload, { priority: 2 });
-  console.log(`[channel] queued → ${uid} "${msg.content.slice(0, 40)}"`);
+  console.log(`[channel] queued → ${uid} agent=${agentId} "${msg.content.slice(0, 40)}"`);
 }
 
 // ── Webhook HTTP endpoints (for cloud/hybrid mode) ─────────────────────────

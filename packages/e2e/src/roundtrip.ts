@@ -86,6 +86,7 @@ async function main() {
     channel:   "e2e_channel",
     messageId,
     content:   TEST_CONTENT,
+    agentId:   "openclaw-default",
   } satisfies TaskPayload);
 
   console.log("   waiting for result …");
