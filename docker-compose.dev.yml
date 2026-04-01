@@ -1,0 +1,40 @@
+version: "3.9"
+# Dev override: mount source, enable hot-reload, no replicas
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  channel-server:
+    image: node:20-alpine
+    working_dir: /app
+    command: pnpm --filter @openclaw/channel-server dev
+    volumes: [.:/app, /app/node_modules]
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on: [redis]
+    ports: ["3000:3000"]
+
+  worker:
+    image: node:20-alpine
+    working_dir: /app
+    command: pnpm --filter @openclaw/worker-pool dev
+    volumes: [.:/app, /app/node_modules, nas_data:/data/openclaw/users]
+    environment:
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: "2"
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
+    depends_on: [redis]
+
+  manager:
+    image: node:20-alpine
+    working_dir: /app
+    command: pnpm --filter @openclaw/manager dev
+    volumes: [.:/app, /app/node_modules]
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on: [redis]
+    ports: ["3001:3001"]
+
+volumes:
+  nas_data:

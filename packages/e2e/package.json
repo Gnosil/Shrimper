@@ -1,0 +1,20 @@
+{
+  "name": "@openclaw/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "fire":  "npx ts-node --esm src/fire.ts",
+    "watch": "npx ts-node --esm src/watch.ts",
+    "ping":  "npx ts-node --esm src/ping.ts"
+  },
+  "dependencies": {
+    "@openclaw/mq":      "workspace:*",
+    "@openclaw/storage": "workspace:*",
+    "ioredis":           "^5.3.0"
+  },
+  "devDependencies": {
+    "ts-node":    "^10.9.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
