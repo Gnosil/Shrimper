@@ -21,6 +21,7 @@ const payload: TaskPayload = {
   channel:   "test_channel_001",
   messageId,
   content,
+  agentId:   process.env.DEFAULT_AGENT_ID ?? "openclaw-default",
 };
 
 async function main() {

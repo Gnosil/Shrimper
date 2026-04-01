@@ -7,6 +7,7 @@ export interface TaskPayload {
   channel: string;
   messageId: string;
   content: string;
+  agentId: string;   // which registered agent handles this task (resolved before enqueue)
   meta?: Record<string, unknown>;
 }
 
