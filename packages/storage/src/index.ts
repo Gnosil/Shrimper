@@ -1,7 +1,10 @@
 /**
  * @openclaw/storage
- * Per-UID file isolation. Default: local FS / NAS.
- * Swap for S3/OSS by implementing IStorageAdapter.
+ * Per-UID file isolation.
+ *   - LocalStorage: default, uses local FS / NAS
+ *   - CosStorage:   activated when COS_BUCKET env var is set
+ *
+ * createStorage() returns the right adapter automatically.
  */
 import path from "path";
 import fs from "fs-extra";
@@ -13,6 +16,8 @@ export interface IStorageAdapter {
   listFiles(uid: string, subdir?: string): Promise<string[]>;
   ensureUserDir(uid: string): Promise<void>;
 }
+
+// ── LocalStorage ─────────────────────────────────────────────────────────────
 
 const BASE_DIR = process.env.STORAGE_BASE ?? path.join(process.env.HOME ?? "/data", ".openclaw", "users");
 
@@ -33,3 +38,21 @@ export const LocalStorage: IStorageAdapter = {
     return (await fs.pathExists(dir)) ? fs.readdir(dir) : [];
   },
 };
+
+// ── CosStorage ───────────────────────────────────────────────────────────────
+
+export { CosStorage } from "./cos.js";
+
+// ── Factory ───────────────────────────────────────────────────────────────────
+
+/**
+ * Returns CosStorage when COS_BUCKET is set, otherwise LocalStorage.
+ * Import this in worker-pool and any service that needs file storage.
+ */
+export async function createStorage(): Promise<IStorageAdapter> {
+  if (process.env.COS_BUCKET) {
+    const { CosStorage } = await import("./cos.js");
+    return CosStorage;
+  }
+  return LocalStorage;
+}

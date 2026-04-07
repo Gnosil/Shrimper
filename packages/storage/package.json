@@ -2,7 +2,20 @@
   "name": "@openclaw/storage",
   "version": "0.1.0",
   "main": "dist/index.js",
-  "scripts": { "build": "tsc", "dev": "tsc -w" },
-  "dependencies": { "fs-extra": "^11.0.0" },
-  "devDependencies": { "@types/fs-extra": "^11.0.0" }
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cos-nodejs-sdk-v5": "^2.14.0",
+    "fs-extra": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
 }

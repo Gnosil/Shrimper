@@ -7,6 +7,6 @@
     "@openclaw/mq": "workspace:*",
     "@openclaw/storage": "workspace:*",
     "@openclaw/agent-registry": "workspace:*",
-    "openclaw": "latest"
+    "@openclaw/agent-adapters": "workspace:*"
   }
 }

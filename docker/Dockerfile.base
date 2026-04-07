@@ -1,0 +1,28 @@
+# Dockerfile.base
+# Build once per month, tag: gnosil/baoshu-base:latest
+# Pre-fetches heavy dependencies for faster app builds
+
+FROM node:20-alpine
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Set working directory
+WORKDIR /app
+
+# Copy workspace configuration files first (for caching)
+COPY pnpm-workspace.yaml ./
+COPY package.json ./
+COPY tsconfig.base.json ./
+
+# Copy all package.json files for dependency resolution
+COPY packages/baoshu-agent/package.json packages/baoshu-agent/
+COPY packages/channel-server/package.json packages/channel-server/
+COPY packages/storage/package.json packages/storage/
+COPY packages/worker-pool/package.json packages/worker-pool/
+
+# Fetch dependencies (this layer is cached unless package.json changes)
+RUN pnpm fetch
+
+# Default command (can be overridden)
+CMD ["sh"]

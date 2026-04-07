@@ -97,6 +97,10 @@ app.post("/webhook/:platform", async (req, res) => {
   try {
     // Each adapter parses the raw body into an InboundMessage
     const msg = await (adapter as any).handleWebhook(req);
+    // Feishu challenge handshake
+    if ((req as any).__feishuChallenge) {
+      return res.json({ challenge: (req as any).__feishuChallenge });
+    }
     if (msg) await handleInbound(msg);
     res.json({ ok: true });
   } catch (e: any) {

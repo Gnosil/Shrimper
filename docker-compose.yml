@@ -30,21 +30,34 @@ services:
       STORAGE_BASE: /data/openclaw/users
       WORKER_CONCURRENCY: "4"
       OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
+      # Optional COS config (if set, uses COS instead of local storage)
+      # COS_SECRET_ID: ${COS_SECRET_ID}
+      # COS_SECRET_KEY: ${COS_SECRET_KEY}
+      # COS_BUCKET: ${COS_BUCKET}
+      # COS_REGION: ${COS_REGION}
     volumes:
       - nas_data:/data/openclaw/users
     depends_on:
       redis: { condition: service_healthy }
     deploy:
-      replicas: 3          # scale this up freely — each is stateless
+      replicas: 3
     restart: unless-stopped
 
-  manager:
+  baoshu-agent:
     build:
       context: .
-      dockerfile: docker/manager.Dockerfile
+      dockerfile: docker/baoshu-agent.Dockerfile
     environment:
       REDIS_URL: redis://redis:6379
-      MANAGER_PORT: "3001"
+      BAOSHU_PORT: "3001"
+      BAOSHU_ENDPOINT: http://baoshu-agent:3001
+      # Anthropic API (required)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      # Optional WeChat Payment (leave empty for mock mode)
+      # WECHAT_MCH_ID: ${WECHAT_MCH_ID}
+      # WECHAT_MCH_KEY: ${WECHAT_MCH_KEY}
+      # WECHAT_NOTIFY_URL: https://your-domain.com/webhook/wechat
     depends_on:
       redis: { condition: service_healthy }
     ports: ["3001:3001"]
