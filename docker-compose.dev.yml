@@ -24,15 +24,26 @@ services:
       REDIS_URL: redis://redis:6379
       WORKER_CONCURRENCY: "2"
       OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
+      # Optional COS config
+      # COS_SECRET_ID: ${COS_SECRET_ID}
+      # COS_SECRET_KEY: ${COS_SECRET_KEY}
+      # COS_BUCKET: ${COS_BUCKET}
+      # COS_REGION: ${COS_REGION}
     depends_on: [redis]
 
-  manager:
+  baoshu-agent:
     image: node:20-alpine
     working_dir: /app
-    command: pnpm --filter @openclaw/manager dev
+    command: pnpm --filter @openclaw/baoshu-agent dev
     volumes: [.:/app, /app/node_modules]
     environment:
       REDIS_URL: redis://redis:6379
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      # Optional WeChat Payment (leave empty for mock mode)
+      # WECHAT_MCH_ID: ${WECHAT_MCH_ID}
+      # WECHAT_MCH_KEY: ${WECHAT_MCH_KEY}
+      # WECHAT_NOTIFY_URL: http://localhost:3001/webhook/wechat
     depends_on: [redis]
     ports: ["3001:3001"]
 
