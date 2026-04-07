@@ -14,21 +14,29 @@ import express, { Request, Response } from "express";
 import IORedis from "ioredis";
 import { ContextStore } from "./context.js";
 import { runBaoshu } from "./agent.js";
-import { handleWechatWebhook, isPaymentMockMode } from "./payment.js";
+import {
+  handleWechatWebhook,
+  handleStripeWebhook,
+  isPaymentMockMode,
+  getPaymentProvider,
+} from "./payment.js";
 import { logger } from "./logger.js";
 
-const PORT  = Number(process.env.BAOSHU_PORT ?? 3001);
+const PORT = Number(process.env.BAOSHU_PORT ?? 3001);
 const redis = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
   maxRetriesPerRequest: null,
 });
 const ctx = new ContextStore(redis);
 
 const app = express();
-app.use(express.raw({ type: "application/json" }));
 
-// Parse JSON for all routes EXCEPT webhook (which needs raw body for sig verification)
+// Raw body parser for webhook routes (need signature verification)
+app.use(express.raw({ type: "application/json", verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+
+// Parse JSON for all routes EXCEPT webhooks
 app.use((req, _res, next) => {
-  if (req.path !== "/webhook/wechat" && Buffer.isBuffer(req.body)) {
+  const isWebhook = req.path === "/webhook/wechat" || req.path === "/webhook/stripe";
+  if (!isWebhook && Buffer.isBuffer(req.body)) {
     req.body = JSON.parse(req.body.toString("utf-8"));
   }
   next();
@@ -69,15 +77,40 @@ app.post("/webhook/wechat", async (req: Request, res: Response) => {
   }
 });
 
+// ── Stripe webhook ────────────────────────────────────────────────────────
+// T-19: POST /webhook/stripe route with raw body parser
+app.post("/webhook/stripe", async (req: Request, res: Response) => {
+  try {
+    const signature = req.headers["stripe-signature"] as string;
+    if (!signature) {
+      return res.status(400).json({ error: "Missing stripe-signature header" });
+    }
+
+    const rawBody = (req as any).rawBody as Buffer;
+    const result = await handleStripeWebhook(rawBody, signature);
+
+    if (result) {
+      logger.info(
+        { uid: result.uid, plan: result.plan },
+        "[payment] Stripe subscription activated via webhook"
+      );
+    }
+
+    return res.json({ received: true });
+  } catch (err: any) {
+    logger.error({ err: err.message }, "[payment] stripe webhook error");
+    return res.status(400).json({ error: err.message });
+  }
+});
+
 // ── Health ────────────────────────────────────────────────────────────────
 app.get("/health", (_req: Request, res: Response) => {
-  const paymentMode = isPaymentMockMode() ? "mock" : "wechat";
+  const provider = getPaymentProvider();
   res.json({
-    status:  "ok",
-    service: "baoshu-agent",
-    port:    PORT,
-    payment: paymentMode,
-    model:   process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+    status: "ok",
+    agent: "baoshu",
+    payment: provider,
+    model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
   });
 });
 

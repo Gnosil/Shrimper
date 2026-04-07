@@ -1,73 +1,180 @@
 /**
- * Payment integration — WeChat Pay (微信支付)
+ * Payment integration — Stripe Checkout + WeChat Pay (微信支付)
  *
- * MVP: Mock mode — returns a placeholder URL until merchant credentials are approved.
- * When WECHAT_MCH_ID and WECHAT_API_V3_KEY are set, switches to real WeChat Pay JSAPI.
+ * MVP: Stripe Checkout (global, fast setup)
+ * Fallback: WeChat Pay when merchant credentials are approved
  *
  * Triggers: agent detects user says "购买", "订阅", "付款", "buy", "subscribe"
- *
- * TODO: Replace MOCK_MODE with real WxPay SDK call once merchant account is approved.
  */
 import { logger } from "./logger.js";
 
 export type Plan = "monthly" | "annual";
 
 export interface PaymentLink {
-  url:    string;
-  plan:   Plan;
+  url: string;
+  plan: Plan;
   isMock: boolean;
+  provider: "stripe" | "wechat" | "mock";
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const MCH_ID      = process.env.WECHAT_MCH_ID     ?? "";
-const API_V3_KEY  = process.env.WECHAT_API_V3_KEY ?? "";
-const NOTIFY_URL  = process.env.WECHAT_NOTIFY_URL ?? `${process.env.APP_URL ?? "http://localhost:3001"}/webhook/wechat`;
-const APP_URL     = process.env.APP_URL            ?? "http://localhost:3001";
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
+const STRIPE_PRICE_MONTHLY = process.env.STRIPE_PRICE_MONTHLY ?? "";
+const STRIPE_PRICE_ANNUAL = process.env.STRIPE_PRICE_ANNUAL ?? "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
-// Mock mode: active when merchant credentials are absent
-const MOCK_MODE   = !MCH_ID || !API_V3_KEY;
+const WECHAT_MCH_ID = process.env.WECHAT_MCH_ID ?? "";
+const WECHAT_MCH_KEY = process.env.WECHAT_MCH_KEY ?? "";
 
-// Subscription prices (CNY fen, 1 CNY = 100 fen)
-const PRICE_MONTHLY = Number(process.env.WECHAT_PRICE_MONTHLY ?? 2900);   // ¥29
-const PRICE_ANNUAL  = Number(process.env.WECHAT_PRICE_ANNUAL  ?? 29900);  // ¥299
+const APP_URL = process.env.APP_URL ?? "http://localhost:3001";
 
+// Determine payment provider
+const USE_STRIPE = STRIPE_SECRET_KEY && STRIPE_PRICE_MONTHLY && STRIPE_PRICE_ANNUAL;
+const USE_WECHAT = WECHAT_MCH_ID && WECHAT_MCH_KEY;
+const MOCK_MODE = !USE_STRIPE && !USE_WECHAT;
+
+// Subscription prices (for display)
+export const PRICE_DISPLAY = {
+  monthly: "¥29",
+  annual: "¥299",
+};
+
+// ── In-memory subscription store (MVP) ────────────────────────────────────────
+const subscriptions = new Map<string, { plan: Plan; activatedAt: Date }>();
+
+export function isSubscribed(uid: string): boolean {
+  return subscriptions.has(uid);
+}
+
+export function getSubscription(uid: string): { plan: Plan; activatedAt: Date } | null {
+  return subscriptions.get(uid) ?? null;
+}
+
+export function activateSubscription(uid: string, plan: Plan): void {
+  subscriptions.set(uid, { plan, activatedAt: new Date() });
+  logger.info({ uid, plan }, "[payment] Subscription activated");
+}
+
+// ── Stripe Integration ────────────────────────────────────────────────────────
+
+/**
+ * Create Stripe Checkout payment link
+ * T-17: createPaymentLink()
+ */
 export async function createPaymentLink(opts: {
-  uid:  string;
+  uid: string;
   plan: Plan;
 }): Promise<PaymentLink> {
   if (MOCK_MODE) {
     logger.warn({ uid: opts.uid, plan: opts.plan }, "[payment] MOCK MODE — returning placeholder URL");
     const mockUrl = `${APP_URL}/payment/mock?uid=${encodeURIComponent(opts.uid)}&plan=${opts.plan}`;
-    return { url: mockUrl, plan: opts.plan, isMock: true };
+    return { url: mockUrl, plan: opts.plan, isMock: true, provider: "mock" };
   }
 
-  // ── Real WeChat Pay JSAPI ─────────────────────────────────────────────────
-  // TODO: Uncomment and install wechatpay-node-v3 when merchant account approved
-  //
-  // const pay = new WxPay({
-  //   appid:  process.env.WECHAT_APP_ID!,
-  //   mchid:  MCH_ID,
-  //   serial: process.env.WECHAT_CERT_SERIAL!,
-  //   privateKey: fs.readFileSync(process.env.WECHAT_PRIVATE_KEY_PATH!),
-  //   apiV3Key: API_V3_KEY,
-  // });
-  //
-  // const amount = opts.plan === "annual" ? PRICE_ANNUAL : PRICE_MONTHLY;
-  // const result = await pay.transactions_native({
-  //   description: opts.plan === "annual" ? "保叔AI年度会员" : "保叔AI月度会员",
-  //   out_trade_no: `baoshu_${opts.uid}_${Date.now()}`,
-  //   notify_url: NOTIFY_URL,
-  //   amount: { total: amount, currency: "CNY" },
-  // });
-  // return { url: result.data.code_url, plan: opts.plan, isMock: false };
+  if (!USE_STRIPE) {
+    throw new Error("Stripe not configured — set STRIPE_SECRET_KEY and STRIPE_PRICE_*");
+  }
 
-  throw new Error("WeChat Pay not configured — set WECHAT_MCH_ID and WECHAT_API_V3_KEY");
+  // Dynamic import to avoid requiring stripe when not configured
+  const { default: Stripe } = await import("stripe");
+  const stripe = new Stripe(STRIPE_SECRET_KEY, {
+    apiVersion: "2024-06-20",
+  });
+
+  const priceId = opts.plan === "annual" ? STRIPE_PRICE_ANNUAL : STRIPE_PRICE_MONTHLY;
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${APP_URL}/payment/success?uid=${opts.uid}&plan=${opts.plan}`,
+    cancel_url: `${APP_URL}/payment/cancel`,
+    metadata: {
+      feishu_open_id: opts.uid,
+      plan: opts.plan,
+    },
+    subscription_data: {
+      metadata: {
+        feishu_open_id: opts.uid,
+        plan: opts.plan,
+      },
+    },
+  });
+
+  return {
+    url: session.url!,
+    plan: opts.plan,
+    isMock: false,
+    provider: "stripe",
+  };
+}
+
+/**
+ * Handle Stripe webhook
+ * T-18: handleWebhook()
+ */
+export async function handleStripeWebhook(
+  rawBody: Buffer,
+  signature: string
+): Promise<{ uid: string; plan: Plan } | null> {
+  if (MOCK_MODE) {
+    // Mock: parse mock callback (for dev testing)
+    try {
+      const data = JSON.parse(rawBody.toString("utf-8")) as {
+        event_type?: string;
+        uid?: string;
+        plan?: Plan;
+      };
+      if (data.event_type === "checkout.session.completed" && data.uid) {
+        logger.info({ uid: data.uid }, "[payment] mock subscription activated");
+        return { uid: data.uid, plan: data.plan ?? "monthly" };
+      }
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  if (!USE_STRIPE || !STRIPE_WEBHOOK_SECRET) {
+    logger.error("[payment] Stripe webhook secret not configured");
+    return null;
+  }
+
+  try {
+    const { default: Stripe } = await import("stripe");
+    const stripe = new Stripe(STRIPE_SECRET_KEY, {
+      apiVersion: "2024-06-20",
+    });
+
+    const event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      STRIPE_WEBHOOK_SECRET
+    );
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as {
+        metadata?: { feishu_open_id?: string; plan?: string };
+      };
+      const uid = session.metadata?.feishu_open_id;
+      const plan = (session.metadata?.plan as Plan) ?? "monthly";
+
+      if (uid) {
+        logger.info({ uid, plan, event: event.type }, "[payment] Stripe subscription confirmed");
+        return { uid, plan };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    logger.error({ error: String(err) }, "[payment] Stripe webhook error");
+    throw new Error(`Webhook error: ${err}`);
+  }
 }
 
 // ── WeChat Pay webhook handler ────────────────────────────────────────────────
 // Called by POST /webhook/wechat
 // Returns uid (open_id) so caller can activate subscription
-export async function handleWechatWebhook(rawBody: Buffer, headers: Record<string, string>): Promise<string | null> {
+export async function handleWechatWebhook(
+  rawBody: Buffer,
+  headers: Record<string, string>
+): Promise<string | null> {
   if (MOCK_MODE) {
     // Mock: parse mock callback (for dev testing)
     try {
@@ -84,12 +191,6 @@ export async function handleWechatWebhook(rawBody: Buffer, headers: Record<strin
   }
 
   // TODO: Verify WeChat Pay signature and decrypt notification when live
-  // const pay = getWxPayClient();
-  // const verified = await pay.verifySign({ ... headers });
-  // if (!verified) throw new Error("WeChat Pay signature verification failed");
-  // const decrypted = pay.decipher_gcm(resource.ciphertext, resource.associated_data, resource.nonce, API_V3_KEY);
-  // return decrypted.payer?.openid ?? null;
-
   logger.error("[payment] WeChat Pay webhook handler not implemented");
   return null;
 }
@@ -105,4 +206,10 @@ export function detectPaymentIntent(text: string): Plan | null {
 
 export function isPaymentMockMode(): boolean {
   return MOCK_MODE;
+}
+
+export function getPaymentProvider(): "stripe" | "wechat" | "mock" {
+  if (USE_STRIPE) return "stripe";
+  if (USE_WECHAT) return "wechat";
+  return "mock";
 }
